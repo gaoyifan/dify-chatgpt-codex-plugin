@@ -1,9 +1,12 @@
 import base64
 import json
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import yaml
+from dify_plugin.entities.model.message import SystemPromptMessage
 from models.common_chatgpt_codex import CODEX_API_BASE, CODEX_CLIENT_ID, CodexAuthenticationError, _CommonChatGPTCodex
 from models.llm.llm import ChatGPTCodexLargeLanguageModel
 
@@ -109,6 +112,7 @@ class ChatGPTCodexLLMTests(unittest.TestCase):
 
     def test_build_responses_api_params_maps_tokens_reasoning_and_json_schema(self) -> None:
         params = self.llm._build_responses_api_params(
+            "gpt-5.3-codex",
             {
                 "max_tokens": 512,
                 "reasoning_effort": "high",
@@ -119,19 +123,37 @@ class ChatGPTCodexLLMTests(unittest.TestCase):
                     "strict": True,
                 },
                 "verbosity": "low",
-            },
-            stop=["END"],
-            user="user-123",
+            }
         )
 
-        self.assertEqual(params["max_output_tokens"], 512)
+        self.assertFalse(params["store"])
+        self.assertTrue(params["stream"])
+        self.assertEqual(params["include"], [])
         self.assertEqual(params["reasoning"], {"effort": "high"})
         self.assertEqual(params["text"]["format"]["type"], "json_schema")
         self.assertEqual(params["text"]["format"]["name"], "structured_answer")
         self.assertTrue(params["text"]["format"]["strict"])
-        self.assertEqual(params["stop"], ["END"])
-        self.assertEqual(params["user"], "user-123")
-        self.assertEqual(params["verbosity"], "low")
+        self.assertEqual(params["text"]["verbosity"], "low")
+        self.assertNotIn("max_output_tokens", params)
+
+    def test_build_responses_api_params_drops_verbosity_for_models_that_do_not_support_it(self) -> None:
+        params = self.llm._build_responses_api_params(
+            "gpt-5.2-codex",
+            {
+                "reasoning_effort": "low",
+                "verbosity": "high",
+            },
+        )
+
+        self.assertEqual(params["reasoning"], {"effort": "low"})
+        self.assertNotIn("text", params)
+
+    def test_build_instructions_uses_system_messages_and_default_fallback(self) -> None:
+        self.assertEqual(
+            self.llm._build_instructions([SystemPromptMessage(content="Follow system policy.")]),
+            "Follow system policy.",
+        )
+        self.assertTrue(self.llm._build_instructions([]))
 
     def test_validate_credentials_uses_responses_api(self) -> None:
         responses_client = SimpleNamespace(create=MagicMock())
@@ -146,7 +168,17 @@ class ChatGPTCodexLLMTests(unittest.TestCase):
                 },
             )
 
-        responses_client.create.assert_called_once_with(model="gpt-5.3-codex", input="ping", max_output_tokens=20)
+        responses_client.create.assert_called_once_with(
+            model="gpt-5.3-codex",
+            instructions="You are a helpful assistant.",
+            input=[{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "ping"}]}],
+            store=False,
+            stream=True,
+            tools=[],
+            tool_choice="auto",
+            parallel_tool_calls=False,
+            include=[],
+        )
 
 
 class ChatGPTCodexModelListTests(unittest.TestCase):
@@ -167,6 +199,91 @@ class ChatGPTCodexModelListTests(unittest.TestCase):
                 "gpt-5.4-mini",
             ],
         )
+
+    def test_model_yaml_capabilities_match_codex_sources(self) -> None:
+        expected = {
+            "gpt-5.1-codex": {
+                "features": ["tool-call", "agent-thought", "stream-tool-call", "vision"],
+                "reasoning_options": ["low", "medium", "high"],
+                "reasoning_default": "medium",
+                "verbosity_default": None,
+            },
+            "gpt-5.1-codex-max": {
+                "features": ["tool-call", "agent-thought", "stream-tool-call", "vision"],
+                "reasoning_options": ["low", "medium", "high", "xhigh"],
+                "reasoning_default": "medium",
+                "verbosity_default": None,
+            },
+            "gpt-5.1-codex-mini": {
+                "features": ["tool-call", "agent-thought", "stream-tool-call", "vision"],
+                "reasoning_options": ["medium", "high"],
+                "reasoning_default": "medium",
+                "verbosity_default": None,
+            },
+            "gpt-5.2": {
+                "features": ["multi-tool-call", "agent-thought", "stream-tool-call", "vision"],
+                "reasoning_options": ["low", "medium", "high", "xhigh"],
+                "reasoning_default": "medium",
+                "verbosity_default": "low",
+            },
+            "gpt-5.2-codex": {
+                "features": ["multi-tool-call", "agent-thought", "stream-tool-call", "vision"],
+                "reasoning_options": ["low", "medium", "high", "xhigh"],
+                "reasoning_default": "medium",
+                "verbosity_default": None,
+            },
+            "gpt-5.3-codex": {
+                "features": ["multi-tool-call", "agent-thought", "stream-tool-call", "vision"],
+                "reasoning_options": ["low", "medium", "high", "xhigh"],
+                "reasoning_default": "medium",
+                "verbosity_default": "low",
+            },
+            "gpt-5.4": {
+                "features": ["multi-tool-call", "agent-thought", "stream-tool-call", "vision"],
+                "reasoning_options": ["low", "medium", "high", "xhigh"],
+                "reasoning_default": "medium",
+                "verbosity_default": "low",
+            },
+            # gpt-5.4-mini is present in opencode's allowlist but not in
+            # openai/codex models.json. We pin it to the live-validated
+            # gpt-5.4-like capability surface until upstream publishes metadata.
+            "gpt-5.4-mini": {
+                "features": ["multi-tool-call", "agent-thought", "stream-tool-call", "vision"],
+                "reasoning_options": ["low", "medium", "high", "xhigh"],
+                "reasoning_default": "medium",
+                "verbosity_default": "low",
+            },
+        }
+
+        for model, model_expectation in expected.items():
+            with self.subTest(model=model):
+                with Path(f"models/llm/{model}.yaml").open(encoding="utf-8") as f:
+                    model_yaml = yaml.safe_load(f)
+
+                self.assertEqual(model_yaml["features"], model_expectation["features"])
+                self.assertEqual(model_yaml["model_properties"]["context_size"], 272000)
+
+                parameter_rules = {
+                    parameter_rule["name"]: parameter_rule for parameter_rule in model_yaml["parameter_rules"]
+                }
+
+                self.assertNotIn("max_tokens", parameter_rules)
+                self.assertIn("response_format", parameter_rules)
+                self.assertIn("json_schema", parameter_rules)
+                self.assertIn("reasoning_effort", parameter_rules)
+                self.assertIn("enable_stream", parameter_rules)
+                self.assertTrue(parameter_rules["enable_stream"]["default"])
+
+                reasoning_rule = parameter_rules["reasoning_effort"]
+                self.assertEqual(reasoning_rule["default"], model_expectation["reasoning_default"])
+                self.assertEqual(reasoning_rule["options"], model_expectation["reasoning_options"])
+
+                verbosity_default = model_expectation["verbosity_default"]
+                if verbosity_default is None:
+                    self.assertNotIn("verbosity", parameter_rules)
+                else:
+                    self.assertEqual(parameter_rules["verbosity"]["default"], verbosity_default)
+                    self.assertEqual(parameter_rules["verbosity"]["options"], ["low", "medium", "high"])
 
 
 if __name__ == "__main__":

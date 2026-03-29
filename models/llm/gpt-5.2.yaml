@@ -10,13 +10,8 @@ features:
   - vision
 model_properties:
   mode: chat
-  context_size: 400000
+  context_size: 272000
 parameter_rules:
-  - name: max_tokens
-    use_template: max_tokens
-    default: 8192
-    min: 1
-    max: 128000
   - name: response_format
     label:
       zh_Hans: 回复格式
@@ -37,15 +32,15 @@ parameter_rules:
       en_US: Reasoning Effort
     type: string
     help:
-      zh_Hans: 约束推理模型的推理努力程度。支持 none、low、medium、high。
-      en_US: Constrains reasoning effort. Supported values are none, low, medium, and high.
+      zh_Hans: 约束推理模型的推理努力程度。支持 low、medium、high、xhigh。
+      en_US: Constrains reasoning effort. Supported values are low, medium, high, and xhigh.
     required: false
-    default: none
+    default: medium
     options:
-      - none
       - low
       - medium
       - high
+      - xhigh
   - name: verbosity
     label:
       zh_Hans: 详细程度
@@ -55,7 +50,7 @@ parameter_rules:
       zh_Hans: 约束模型响应的详细程度。支持 low、medium、high。
       en_US: Constrains the verbosity of the model response. Supported values are low, medium, and high.
     required: false
-    default: medium
+    default: low
     options:
       - low
       - medium

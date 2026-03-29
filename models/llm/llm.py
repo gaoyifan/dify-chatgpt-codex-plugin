@@ -24,6 +24,57 @@ from dify_plugin.entities.model.message import (
 from ..common_chatgpt_codex import CodexAuthenticationError, _CommonChatGPTCodex
 
 logger = logging.getLogger(__name__)
+DEFAULT_CODEX_INSTRUCTIONS = "You are a helpful assistant."
+MODEL_CAPABILITIES = {
+    "gpt-5.1-codex": {
+        "supported_reasoning_levels": {"low", "medium", "high"},
+        "default_reasoning_level": "medium",
+        "support_verbosity": False,
+        "supports_parallel_tool_calls": False,
+    },
+    "gpt-5.1-codex-max": {
+        "supported_reasoning_levels": {"low", "medium", "high", "xhigh"},
+        "default_reasoning_level": "medium",
+        "support_verbosity": False,
+        "supports_parallel_tool_calls": False,
+    },
+    "gpt-5.1-codex-mini": {
+        "supported_reasoning_levels": {"medium", "high"},
+        "default_reasoning_level": "medium",
+        "support_verbosity": False,
+        "supports_parallel_tool_calls": False,
+    },
+    "gpt-5.2": {
+        "supported_reasoning_levels": {"low", "medium", "high", "xhigh"},
+        "default_reasoning_level": "medium",
+        "support_verbosity": True,
+        "supports_parallel_tool_calls": True,
+    },
+    "gpt-5.2-codex": {
+        "supported_reasoning_levels": {"low", "medium", "high", "xhigh"},
+        "default_reasoning_level": "medium",
+        "support_verbosity": False,
+        "supports_parallel_tool_calls": True,
+    },
+    "gpt-5.3-codex": {
+        "supported_reasoning_levels": {"low", "medium", "high", "xhigh"},
+        "default_reasoning_level": "medium",
+        "support_verbosity": True,
+        "supports_parallel_tool_calls": True,
+    },
+    "gpt-5.4": {
+        "supported_reasoning_levels": {"low", "medium", "high", "xhigh"},
+        "default_reasoning_level": "medium",
+        "support_verbosity": True,
+        "supports_parallel_tool_calls": True,
+    },
+    "gpt-5.4-mini": {
+        "supported_reasoning_levels": {"low", "medium", "high", "xhigh"},
+        "default_reasoning_level": "medium",
+        "support_verbosity": True,
+        "supports_parallel_tool_calls": True,
+    },
+}
 AUTH_ERRORS = (
     openai.AuthenticationError,
     openai.PermissionDeniedError,
@@ -53,7 +104,8 @@ class ChatGPTCodexLargeLanguageModel(_CommonChatGPTCodex, LargeLanguageModel):
         if model_parameters.pop("enable_stream", None) is False:
             stream = False
 
-        prompt_messages = self._clear_illegal_prompt_messages(model, prompt_messages)
+        # Codex currently ignores caller-provided stop sequences and user ids.
+        del stop, user
 
         if stream:
             return self._chat_generate_responses_api_stream(
@@ -62,8 +114,6 @@ class ChatGPTCodexLargeLanguageModel(_CommonChatGPTCodex, LargeLanguageModel):
                 prompt_messages=prompt_messages,
                 model_parameters=model_parameters,
                 tools=tools,
-                stop=stop,
-                user=user,
             )
 
         return self._chat_generate_responses_api(
@@ -72,8 +122,6 @@ class ChatGPTCodexLargeLanguageModel(_CommonChatGPTCodex, LargeLanguageModel):
             prompt_messages=prompt_messages,
             model_parameters=model_parameters,
             tools=tools,
-            stop=stop,
-            user=user,
         )
 
     def validate_credentials(self, model: str, credentials: Mapping) -> None:
@@ -82,11 +130,19 @@ class ChatGPTCodexLargeLanguageModel(_CommonChatGPTCodex, LargeLanguageModel):
         """
 
         def _validate(client: OpenAI, _: dict) -> None:
-            client.responses.create(
+            response = client.responses.create(
                 model=model,
-                input="ping",
-                max_output_tokens=20,
+                instructions=DEFAULT_CODEX_INSTRUCTIONS,
+                input=[{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "ping"}]}],
+                store=False,
+                stream=True,
+                tools=[],
+                tool_choice="auto",
+                parallel_tool_calls=False,
+                include=[],
             )
+            for _ in response:
+                break
 
         try:
             self._with_codex_client(credentials, _validate)
@@ -120,42 +176,70 @@ class ChatGPTCodexLargeLanguageModel(_CommonChatGPTCodex, LargeLanguageModel):
 
     def _build_responses_api_params(
         self,
+        model: str,
         model_parameters: dict,
-        stop: Optional[list[str]] = None,
-        user: Optional[str] = None,
     ) -> dict:
         params = model_parameters.copy()
-
-        if "max_tokens" in params:
-            params["max_output_tokens"] = params.pop("max_tokens")
-        if "max_completion_tokens" in params:
-            params["max_output_tokens"] = params.pop("max_completion_tokens")
+        params["store"] = False
+        params["stream"] = True
+        params["include"] = []
+        params.pop("max_tokens", None)
+        params.pop("max_completion_tokens", None)
+        capabilities = MODEL_CAPABILITIES.get(model, {})
 
         reasoning_effort = params.pop("reasoning_effort", None)
-        if reasoning_effort and reasoning_effort != "none":
+        if reasoning_effort == "none":
+            reasoning_effort = None
+        supported_reasoning_levels = capabilities.get("supported_reasoning_levels")
+        if supported_reasoning_levels and reasoning_effort not in supported_reasoning_levels:
+            reasoning_effort = capabilities.get("default_reasoning_level")
+        if reasoning_effort:
             params["reasoning"] = {"effort": reasoning_effort}
 
         response_format = params.pop("response_format", None)
         json_schema = params.pop("json_schema", None)
+        verbosity = params.pop("verbosity", None)
+        if not capabilities.get("support_verbosity", True):
+            verbosity = None
+        text_config: dict[str, Any] = {}
         if response_format == "json_schema" and json_schema:
             schema_obj = json_schema if isinstance(json_schema, dict) else {"schema": json_schema}
-            params["text"] = {
-                "format": {
-                    "type": "json_schema",
-                    "name": schema_obj.get("name", "response"),
-                    "schema": schema_obj.get("schema", json_schema),
-                }
+            text_config["format"] = {
+                "type": "json_schema",
+                "name": schema_obj.get("name", "response"),
+                "schema": schema_obj.get("schema", json_schema),
             }
             if "strict" in schema_obj:
-                params["text"]["format"]["strict"] = schema_obj["strict"]
-
-        if stop:
-            params["stop"] = stop
-
-        if user:
-            params["user"] = user
+                text_config["format"]["strict"] = schema_obj["strict"]
+        if verbosity:
+            text_config["verbosity"] = verbosity
+        if text_config:
+            params["text"] = text_config
 
         return params
+
+    def _build_instructions(self, prompt_messages: list[PromptMessage]) -> str:
+        instructions: list[str] = []
+
+        for message in prompt_messages:
+            if not isinstance(message, SystemPromptMessage):
+                continue
+            if isinstance(message.content, str):
+                if message.content.strip():
+                    instructions.append(message.content.strip())
+                continue
+            text_content = "\n".join(
+                item.data
+                for item in message.content
+                if item.type == PromptMessageContentType.TEXT and item.data.strip()
+            ).strip()
+            if text_content:
+                instructions.append(text_content)
+
+        if instructions:
+            return "\n\n".join(instructions)
+
+        return DEFAULT_CODEX_INSTRUCTIONS
 
     def _convert_prompt_messages_to_responses_input(
         self,
@@ -165,20 +249,11 @@ class ChatGPTCodexLargeLanguageModel(_CommonChatGPTCodex, LargeLanguageModel):
 
         for message in prompt_messages:
             if isinstance(message, SystemPromptMessage):
-                if isinstance(message.content, str):
-                    content: Any = message.content
-                else:
-                    content = "\n".join(
-                        item.data
-                        for item in message.content
-                        if item.type == PromptMessageContentType.TEXT
-                    )
-                input_items.append({"type": "message", "role": "system", "content": content})
                 continue
 
             if isinstance(message, UserPromptMessage):
                 if isinstance(message.content, str):
-                    content = message.content
+                    content = [{"type": "input_text", "text": message.content}]
                 else:
                     content = []
                     for item in message.content:
@@ -213,7 +288,12 @@ class ChatGPTCodexLargeLanguageModel(_CommonChatGPTCodex, LargeLanguageModel):
                         {
                             "type": "message",
                             "role": "assistant",
-                            "content": message.content if isinstance(message.content, str) else "",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": message.content if isinstance(message.content, str) else "",
+                                }
+                            ],
                         }
                     )
                 continue
@@ -243,23 +323,6 @@ class ChatGPTCodexLargeLanguageModel(_CommonChatGPTCodex, LargeLanguageModel):
             for tool in tools
         ]
 
-    def _extract_output_tool_calls(self, output_items: list[Any]) -> list[AssistantPromptMessage.ToolCall]:
-        tool_calls: list[AssistantPromptMessage.ToolCall] = []
-        for item in output_items:
-            if getattr(item, "type", None) != "function_call":
-                continue
-            tool_calls.append(
-                AssistantPromptMessage.ToolCall(
-                    id=getattr(item, "call_id", ""),
-                    type="function",
-                    function=AssistantPromptMessage.ToolCall.ToolCallFunction(
-                        name=getattr(item, "name", ""),
-                        arguments=getattr(item, "arguments", "") or "",
-                    ),
-                )
-            )
-        return tool_calls
-
     def _chat_generate_responses_api(
         self,
         model: str,
@@ -267,43 +330,34 @@ class ChatGPTCodexLargeLanguageModel(_CommonChatGPTCodex, LargeLanguageModel):
         prompt_messages: list[PromptMessage],
         model_parameters: dict,
         tools: Optional[list[PromptMessageTool]],
-        stop: Optional[list[str]] = None,
-        user: Optional[str] = None,
     ) -> LLMResult:
-        response_params = self._build_responses_api_params(model_parameters, stop=stop, user=user)
-        response_params["input"] = self._convert_prompt_messages_to_responses_input(prompt_messages)
-
-        api_tools = self._build_responses_api_tools(tools)
-        if api_tools:
-            response_params["tools"] = api_tools
-            response_params.setdefault("tool_choice", "auto")
-
-        def _call(client: OpenAI, current_credentials: dict) -> LLMResult:
-            response = client.responses.create(model=model, **response_params)
-
-            assistant_prompt_message = AssistantPromptMessage(
-                content=response.output_text or "",
-                tool_calls=self._extract_output_tool_calls(getattr(response, "output", [])),
-            )
-
-            usage = None
-            if response.usage:
-                usage = self._calc_response_usage(
-                    model=model,
-                    credentials=current_credentials,
-                    prompt_tokens=response.usage.input_tokens,
-                    completion_tokens=response.usage.output_tokens,
-                )
-
-            return LLMResult(
-                model=response.model,
+        response_chunks = list(
+            self._chat_generate_responses_api_stream(
+                model=model,
+                credentials=credentials,
                 prompt_messages=prompt_messages,
-                message=assistant_prompt_message,
-                usage=usage,
-                system_fingerprint=None,
+                model_parameters=model_parameters,
+                tools=tools,
             )
+        )
+        final_chunk = response_chunks[-1]
+        full_text = "".join(
+            chunk.delta.message.content
+            for chunk in response_chunks[:-1]
+            if chunk.delta.message and chunk.delta.message.content
+        )
+        tool_calls = []
+        for chunk in response_chunks:
+            if chunk.delta.message and chunk.delta.message.tool_calls:
+                tool_calls = chunk.delta.message.tool_calls
 
-        return self._with_codex_client(credentials, _call)
+        return LLMResult(
+            model=final_chunk.model,
+            prompt_messages=prompt_messages,
+            message=AssistantPromptMessage(content=full_text, tool_calls=tool_calls),
+            usage=final_chunk.delta.usage,
+            system_fingerprint=None,
+        )
 
     def _chat_generate_responses_api_stream(
         self,
@@ -312,20 +366,21 @@ class ChatGPTCodexLargeLanguageModel(_CommonChatGPTCodex, LargeLanguageModel):
         prompt_messages: list[PromptMessage],
         model_parameters: dict,
         tools: Optional[list[PromptMessageTool]],
-        stop: Optional[list[str]] = None,
-        user: Optional[str] = None,
     ) -> Generator:
-        response_params = self._build_responses_api_params(model_parameters, stop=stop, user=user)
+        response_params = self._build_responses_api_params(model, model_parameters)
+        response_params["instructions"] = self._build_instructions(prompt_messages)
         response_params["input"] = self._convert_prompt_messages_to_responses_input(prompt_messages)
 
         api_tools = self._build_responses_api_tools(tools)
-        if api_tools:
-            response_params["tools"] = api_tools
-            response_params.setdefault("tool_choice", "auto")
+        response_params["tools"] = api_tools or []
+        response_params["tool_choice"] = "auto"
+        response_params["parallel_tool_calls"] = bool(tools) and MODEL_CAPABILITIES.get(model, {}).get(
+            "supports_parallel_tool_calls", True
+        )
 
         stream_response = self._with_codex_client(
             credentials,
-            lambda client, _: client.responses.create(model=model, stream=True, **response_params),
+            lambda client, _: client.responses.create(model=model, **response_params),
         )
 
         full_text = ""
@@ -378,7 +433,29 @@ class ChatGPTCodexLargeLanguageModel(_CommonChatGPTCodex, LargeLanguageModel):
                 output_index = getattr(event, "output_index", 0)
                 if output_index in pending_tool_calls:
                     pending_tool_calls[output_index]["arguments"] = getattr(event, "arguments", "")
-                    pending_tool_calls[output_index]["name"] = getattr(event, "name", "")
+                    event_name = getattr(event, "name", None)
+                    if event_name:
+                        pending_tool_calls[output_index]["name"] = event_name
+                continue
+
+            if event_type == "response.output_item.done":
+                item = getattr(event, "item", None)
+                if getattr(item, "type", None) == "function_call":
+                    output_index = getattr(event, "output_index", 0)
+                    pending_tool_calls.setdefault(
+                        output_index,
+                        {
+                            "call_id": getattr(item, "call_id", ""),
+                            "name": "",
+                            "arguments": "",
+                        },
+                    )
+                    pending_tool_calls[output_index]["name"] = getattr(item, "name", "") or pending_tool_calls[
+                        output_index
+                    ]["name"]
+                    pending_tool_calls[output_index]["arguments"] = getattr(item, "arguments", "") or pending_tool_calls[
+                        output_index
+                    ]["arguments"]
                 continue
 
             if event_type == "response.completed":
@@ -455,13 +532,6 @@ class ChatGPTCodexLargeLanguageModel(_CommonChatGPTCodex, LargeLanguageModel):
         )
         final_chunk.delta.usage = usage
         yield final_chunk
-
-    def _clear_illegal_prompt_messages(
-        self,
-        model: str,
-        prompt_messages: list[PromptMessage],
-    ) -> list[PromptMessage]:
-        return prompt_messages
 
     def _convert_prompt_message_to_dict(self, message: PromptMessage) -> dict:
         if isinstance(message, UserPromptMessage):
