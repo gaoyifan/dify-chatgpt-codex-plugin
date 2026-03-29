@@ -1,7 +1,7 @@
-model: gpt-5.4-mini
+model: gpt-5.2-codex
 label:
-  zh_Hans: gpt-5.4-mini
-  en_US: gpt-5.4-mini
+  zh_Hans: gpt-5.2-codex
+  en_US: gpt-5.2-codex
 model_type: llm
 features:
   - multi-tool-call

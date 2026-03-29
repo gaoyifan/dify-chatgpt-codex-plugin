@@ -1,12 +1,12 @@
-version: 0.3.4
+version: 0.4.0
 type: plugin
 author: "gaoyifan"
-name: "openai"
+name: "chatgpt_codex"
 description:
-  en_US: Models provided by OpenAI, such as GPT-3.5-Turbo, GPT-4, and GPT-5.
-  zh_Hans: OpenAI 提供的模型，例如 GPT-3.5-Turbo、GPT-4 和 GPT-5。
+  en_US: ChatGPT Codex models exposed through the ChatGPT subscription-backed Codex interface.
+  zh_Hans: 通过 ChatGPT 订阅版 Codex 接口提供的 ChatGPT Codex 模型。
 label:
-  en_US: "OpenAI"
+  en_US: "ChatGPT Codex"
 created_at: "2026-03-29T17:30:00Z"
 icon: icon_s_en.svg
 resource:
@@ -19,7 +19,7 @@ resource:
       llm: true
 plugins:
   models:
-    - "provider/openai.yaml"
+    - "provider/chatgpt_codex.yaml"
 meta:
   version: 0.0.1
   arch:

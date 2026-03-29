@@ -1,0 +1,79 @@
+provider: chatgpt_codex
+label:
+  en_US: ChatGPT Codex
+description:
+  en_US: ChatGPT Codex models exposed through the ChatGPT subscription-backed Codex interface.
+  zh_Hans: 通过 ChatGPT 订阅版 Codex 接口提供的 ChatGPT Codex 模型。
+icon_small:
+  en_US: icon_s_en.svg
+icon_large:
+  en_US: icon_l_en.svg
+background: "#E5E7EB"
+help:
+  title:
+    en_US: ChatGPT Codex authentication
+    zh_Hans: ChatGPT Codex 认证
+  url:
+    en_US: https://developers.openai.com/codex/auth
+supported_model_types:
+  - llm
+configurate_methods:
+  - predefined-model
+provider_credential_schema:
+  credential_form_schemas:
+    - variable: chatgpt_access_token
+      label:
+        en_US: Access Token
+        zh_Hans: Access Token
+      type: secret-input
+      required: true
+      placeholder:
+        zh_Hans: 在此输入 ChatGPT Codex access token
+        en_US: Enter your ChatGPT Codex access token
+    - variable: chatgpt_refresh_token
+      label:
+        en_US: Refresh Token
+        zh_Hans: Refresh Token
+      type: secret-input
+      required: true
+      placeholder:
+        zh_Hans: 在此输入 ChatGPT Codex refresh token
+        en_US: Enter your ChatGPT Codex refresh token
+    - variable: chatgpt_account_id
+      label:
+        zh_Hans: ChatGPT 账户 ID
+        en_US: ChatGPT Account ID
+      type: text-input
+      required: false
+      placeholder:
+        zh_Hans: 可选，留空时插件会尝试从 token 中提取
+        en_US: Optional. Leave blank to let the plugin extract it from the token
+    - variable: codex_api_base
+      label:
+        zh_Hans: Codex API Base
+        en_US: Codex API Base
+      type: text-input
+      required: false
+      default: https://chatgpt.com/backend-api/codex
+      placeholder:
+        zh_Hans: 输入自定义 Codex API Base
+        en_US: Enter a custom Codex API base
+    - variable: validate_model
+      label:
+        zh_Hans: 验证模型
+        en_US: Validate Model
+      type: text-input
+      required: false
+      placeholder:
+        zh_Hans: 用于验证凭据的模型名称，如：gpt-5.3-codex
+        en_US: Model name used to validate credentials, e.g. gpt-5.3-codex
+models:
+  llm:
+    predefined:
+      - "models/llm/*.yaml"
+    position: "models/llm/_position.yaml"
+extra:
+  python:
+    provider_source: provider/chatgpt_codex.py
+    model_sources:
+      - "models/llm/llm.py"

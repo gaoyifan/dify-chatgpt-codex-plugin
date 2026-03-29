@@ -1,10 +1,24 @@
 ## Overview
-OpenAI offers a comprehensive set of models for various tasks, including text generation, image generation, vision, audio generation, text-to-speech (TTS), speech-to-text (STT), embeddings, moderation, and reasoning.
-This plugin allows developers to integrate LLMs such as GPT-3.5, GPT-4, GPT-5, and the o1 family (including custom fine-tuned versions) via the API, with support for function calling.
+This plugin provides ChatGPT Codex models for Dify through the ChatGPT subscription-backed Codex interface.
+It is intentionally incompatible with the standard OpenAI API: it only supports the Codex Responses API, Codex-compatible authentication, and the same model set allowed by the `opencode` Codex plugin.
 
-This repository is an independently published fork of Dify's official OpenAI model plugin. The current codebase intentionally matches the official plugin's feature set, and future changes will focus on ChatGPT Codex subscription support.
+Supported models:
+
+- `gpt-5.1-codex`
+- `gpt-5.1-codex-max`
+- `gpt-5.1-codex-mini`
+- `gpt-5.2`
+- `gpt-5.2-codex`
+- `gpt-5.3-codex`
+- `gpt-5.4`
+- `gpt-5.4-mini`
 
 ## Configure
-After installing the plugin, configure your OpenAI settings in the Model Provider section. This includes your API key (find it [here](https://platform.openai.com/account/api-keys)) and optional Organization ID and API Base. Save to use OpenAI.
+After installing the plugin, configure the provider with:
 
-<img src="./_assets/openai-01.png" width="400" />
+- a ChatGPT Codex access token
+- a ChatGPT Codex refresh token
+- an optional ChatGPT account id
+- an optional custom Codex API base
+
+The plugin defaults to `https://chatgpt.com/backend-api/codex` and validates credentials with the `gpt-5.3-codex` model unless you override `validate_model`.

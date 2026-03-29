@@ -9,3 +9,4 @@ __pycache__/
 *.difypkg
 .gitignore
 .difyignore
+tests/

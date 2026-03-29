@@ -8,7 +8,7 @@ from dify_plugin.errors.model import CredentialsValidateFailedError
 logger = logging.getLogger(__name__)
 
 
-class OpenAIProvider(ModelProvider):
+class ChatGPTCodexProvider(ModelProvider):
     def validate_provider_credentials(self, credentials: Mapping) -> None:
         """
         Validate provider credentials
@@ -18,13 +18,8 @@ class OpenAIProvider(ModelProvider):
         """
         try:
             model_instance = self.get_model_instance(ModelType.LLM)
-
-            # Use `gpt-3.5-turbo` model for validate,
-            # no matter what model you pass in, text completion model or chat model
-            validate_model = credentials.get("validate_model") or "gpt-4o-mini"
-            model_instance.validate_credentials(
-                model=validate_model, credentials=credentials
-            )
+            validate_model = credentials.get("validate_model") or "gpt-5.3-codex"
+            model_instance.validate_credentials(model=validate_model, credentials=credentials)
         except CredentialsValidateFailedError as ex:
             raise ex
         except Exception as ex:

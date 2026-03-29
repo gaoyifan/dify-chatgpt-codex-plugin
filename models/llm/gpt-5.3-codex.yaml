@@ -1,7 +1,7 @@
-model: gpt-5.4-mini
+model: gpt-5.3-codex
 label:
-  zh_Hans: gpt-5.4-mini
-  en_US: gpt-5.4-mini
+  zh_Hans: gpt-5.3-codex
+  en_US: gpt-5.3-codex
 model_type: llm
 features:
   - multi-tool-call
@@ -40,7 +40,7 @@ parameter_rules:
       zh_Hans: 约束推理模型的推理努力程度。支持 none、low、medium、high。
       en_US: Constrains reasoning effort. Supported values are none, low, medium, and high.
     required: false
-    default: none
+    default: medium
     options:
       - none
       - low
