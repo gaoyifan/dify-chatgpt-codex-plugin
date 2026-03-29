@@ -1,0 +1,59 @@
+name: Release Dify Plugin
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  package-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download latest Dify CLI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CLI_TAG=$(gh release view --repo langgenius/dify-plugin-daemon --json tagName -q .tagName)
+          mkdir -p "$RUNNER_TEMP/bin"
+          gh release download "$CLI_TAG" --repo langgenius/dify-plugin-daemon -p "dify-plugin-linux-amd64" -D "$RUNNER_TEMP/bin"
+          chmod +x "$RUNNER_TEMP/bin/dify-plugin-linux-amd64"
+
+      - name: Read manifest info
+        id: manifest
+        run: |
+          PLUGIN_NAME=$(awk '/^name:/{print $2; exit}' manifest.yaml)
+          VERSION=$(awk '/^version:/{print $2; exit}' manifest.yaml)
+          PACKAGE_NAME="${PLUGIN_NAME}-${VERSION}.difypkg"
+          echo "plugin_name=${PLUGIN_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "package_name=${PACKAGE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate tag matches manifest version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$TAG_VERSION" != "${{ steps.manifest.outputs.version }}" ]; then
+            echo "Git tag ${GITHUB_REF_NAME} does not match manifest version ${{ steps.manifest.outputs.version }}"
+            exit 1
+          fi
+
+      - name: Package plugin
+        run: |
+          "$RUNNER_TEMP/bin/dify-plugin-linux-amd64" plugin package . -o "${{ steps.manifest.outputs.package_name }}"
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" "${{ steps.manifest.outputs.package_name }}" --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              "${{ steps.manifest.outputs.package_name }}" \
+              --title "${GITHUB_REF_NAME}" \
+              --notes "Release ${{ steps.manifest.outputs.plugin_name }} ${{ steps.manifest.outputs.version }}"
+          fi
