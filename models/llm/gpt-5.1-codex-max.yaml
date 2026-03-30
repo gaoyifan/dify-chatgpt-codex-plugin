@@ -41,6 +41,16 @@ parameter_rules:
       - medium
       - high
       - xhigh
+  - name: enable_web_search
+    label:
+      zh_Hans: 启用 WebSearch
+      en_US: Enable WebSearch
+    type: boolean
+    help:
+      zh_Hans: 为模型附加 Codex Responses API 的 `web_search` 内建工具。
+      en_US: Attach the Codex Responses API built-in `web_search` tool for the model.
+    required: true
+    default: false
   - name: enable_stream
     label:
       zh_Hans: 流式响应

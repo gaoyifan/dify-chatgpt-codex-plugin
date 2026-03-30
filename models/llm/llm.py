@@ -25,6 +25,8 @@ from ..common_chatgpt_codex import CodexAuthenticationError, _CommonChatGPTCodex
 
 logger = logging.getLogger(__name__)
 DEFAULT_CODEX_INSTRUCTIONS = "You are a helpful assistant."
+ENABLE_WEB_SEARCH_PARAM = "enable_web_search"
+WEB_SEARCH_TOOL = {"type": "web_search"}
 MODEL_CAPABILITIES = {
     "gpt-5.1-codex": {
         "supported_reasoning_levels": {"low", "medium", "high"},
@@ -185,6 +187,7 @@ class ChatGPTCodexLargeLanguageModel(_CommonChatGPTCodex, LargeLanguageModel):
         params["include"] = []
         params.pop("max_tokens", None)
         params.pop("max_completion_tokens", None)
+        params.pop(ENABLE_WEB_SEARCH_PARAM, None)
         capabilities = MODEL_CAPABILITIES.get(model, {})
 
         reasoning_effort = params.pop("reasoning_effort", None)
@@ -309,19 +312,30 @@ class ChatGPTCodexLargeLanguageModel(_CommonChatGPTCodex, LargeLanguageModel):
 
         return input_items
 
-    def _build_responses_api_tools(self, tools: Optional[list[PromptMessageTool]]) -> Optional[list[dict]]:
-        if not tools:
+    def _build_responses_api_tools(
+        self,
+        tools: Optional[list[PromptMessageTool]],
+        enable_web_search: bool = False,
+    ) -> Optional[list[dict]]:
+        api_tools: list[dict] = []
+        if tools:
+            api_tools.extend(
+                {
+                    "type": "function",
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                }
+                for tool in tools
+            )
+
+        if enable_web_search:
+            api_tools.append(WEB_SEARCH_TOOL.copy())
+
+        if not api_tools:
             return None
 
-        return [
-            {
-                "type": "function",
-                "name": tool.name,
-                "description": tool.description,
-                "parameters": tool.parameters,
-            }
-            for tool in tools
-        ]
+        return api_tools
 
     def _chat_generate_responses_api(
         self,
@@ -367,14 +381,15 @@ class ChatGPTCodexLargeLanguageModel(_CommonChatGPTCodex, LargeLanguageModel):
         model_parameters: dict,
         tools: Optional[list[PromptMessageTool]],
     ) -> Generator:
+        enable_web_search = bool(model_parameters.get(ENABLE_WEB_SEARCH_PARAM))
         response_params = self._build_responses_api_params(model, model_parameters)
         response_params["instructions"] = self._build_instructions(prompt_messages)
         response_params["input"] = self._convert_prompt_messages_to_responses_input(prompt_messages)
 
-        api_tools = self._build_responses_api_tools(tools)
+        api_tools = self._build_responses_api_tools(tools, enable_web_search=enable_web_search)
         response_params["tools"] = api_tools or []
         response_params["tool_choice"] = "auto"
-        response_params["parallel_tool_calls"] = bool(tools) and MODEL_CAPABILITIES.get(model, {}).get(
+        response_params["parallel_tool_calls"] = bool(api_tools) and MODEL_CAPABILITIES.get(model, {}).get(
             "supports_parallel_tool_calls", True
         )
 

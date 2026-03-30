@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import yaml
-from dify_plugin.entities.model.message import SystemPromptMessage
+from dify_plugin.entities.model.message import PromptMessageTool, SystemPromptMessage
 from models.common_chatgpt_codex import CODEX_API_BASE, CODEX_CLIENT_ID, CodexAuthenticationError, _CommonChatGPTCodex
 from models.llm.llm import ChatGPTCodexLargeLanguageModel
 
@@ -135,6 +135,7 @@ class ChatGPTCodexLLMTests(unittest.TestCase):
         self.assertTrue(params["text"]["format"]["strict"])
         self.assertEqual(params["text"]["verbosity"], "low")
         self.assertNotIn("max_output_tokens", params)
+        self.assertNotIn("enable_web_search", params)
 
     def test_build_responses_api_params_drops_verbosity_for_models_that_do_not_support_it(self) -> None:
         params = self.llm._build_responses_api_params(
@@ -154,6 +155,37 @@ class ChatGPTCodexLLMTests(unittest.TestCase):
             "Follow system policy.",
         )
         self.assertTrue(self.llm._build_instructions([]))
+
+    def test_build_responses_api_tools_can_append_web_search(self) -> None:
+        api_tools = self.llm._build_responses_api_tools(
+            [
+                PromptMessageTool(
+                    name="lookup_order",
+                    description="Look up an order",
+                    parameters={"type": "object", "properties": {"order_id": {"type": "string"}}},
+                )
+            ],
+            enable_web_search=True,
+        )
+
+        self.assertEqual(
+            api_tools,
+            [
+                {
+                    "type": "function",
+                    "name": "lookup_order",
+                    "description": "Look up an order",
+                    "parameters": {"type": "object", "properties": {"order_id": {"type": "string"}}},
+                },
+                {"type": "web_search"},
+            ],
+        )
+
+    def test_build_responses_api_tools_can_enable_only_web_search(self) -> None:
+        self.assertEqual(
+            self.llm._build_responses_api_tools(None, enable_web_search=True),
+            [{"type": "web_search"}],
+        )
 
     def test_validate_credentials_uses_responses_api(self) -> None:
         responses_client = SimpleNamespace(create=MagicMock())
@@ -271,7 +303,9 @@ class ChatGPTCodexModelListTests(unittest.TestCase):
                 self.assertIn("response_format", parameter_rules)
                 self.assertIn("json_schema", parameter_rules)
                 self.assertIn("reasoning_effort", parameter_rules)
+                self.assertIn("enable_web_search", parameter_rules)
                 self.assertIn("enable_stream", parameter_rules)
+                self.assertFalse(parameter_rules["enable_web_search"]["default"])
                 self.assertTrue(parameter_rules["enable_stream"]["default"])
 
                 reasoning_rule = parameter_rules["reasoning_effort"]

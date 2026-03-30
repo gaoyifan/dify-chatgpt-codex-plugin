@@ -22,3 +22,5 @@ After installing the plugin, configure the provider with:
 - an optional custom Codex API base
 
 The plugin defaults to `https://chatgpt.com/backend-api/codex` and validates credentials with the `gpt-5.3-codex` model unless you override `validate_model`.
+
+Each model also exposes an `Enable WebSearch` switch. When enabled, the plugin appends the Codex Responses API built-in `web_search` tool to the request so the model can browse during the turn.
